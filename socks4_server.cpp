@@ -77,14 +77,14 @@ class server {
                           _socket_requester.remote_endpoint().port()%
                           D_IP % D_PORT % Command %
                           "Accept";
-
+    
     if (socks4_req.command_ == socks4::request::command_type::connect)
       resolve(tcp::resolver::query(socks4_req.getAddress(),  to_string(socks4_req.getPort())));   // able to declare a query as a input of resolve? 
   }                                                                                               //but query constructure doesn't has return value. 
     if (socks4_req.command_ == socks4::request::command_type::bind)
       //connect to requester.  //local_endpoint: This function is used to obtain the locally bound endpoint of the socket.
       tcp::acceptor acceptor_bind(io_service, tcp::endpoint(tcp::v4(), ));
-
+      //making FTP
 
 
 
