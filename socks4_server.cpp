@@ -1,0 +1,211 @@
+#include <boost/asio.hpp>
+#include <boost/bind.hpp>
+#include <boost/format.hpp>
+#include <cstdlib>
+#include <iostream>
+#include <string>
+#include <sys/types.h>
+#include <map>
+#include <string>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <boost/algorithm/string.hpp>
+#include "socks4.hpp"
+
+#include <boost/asio/ip/address_v4.hpp>
+#include <boost/asio/ip/network_v4.hpp>
+#include <fstream>
+
+using boost::asio::ip::tcp;
+using namespace std;
+boost::asio::io_service io_service;
+
+
+class server {
+ public:
+  server(unsigned short port)        
+      : _acceptor(io_service,tcp::endpoint(tcp::v4(), port) ){
+    newSignalHandler();
+    do_accept();
+  }
+
+ private:
+ 
+  void newSignalHandler() {
+    _signal.async_wait([this](boost::system::error_code /*ec*/, int /*signo*/) {
+                          if (_acceptor.is_open()) {
+                            int status = 0;
+                            while (waitpid(-1, &status, WNOHANG) > 0) {}
+                            newSignalHandler();
+                          }
+                       });
+  }
+
+  void do_accept() {
+    
+    _acceptor.async_accept(_socket_requester, 
+        [this](boost::system::error_code ec) {  ////save bind for latter study
+          if (!ec) {
+            io_service.notify_fork(boost::asio::io_service::fork_prepare);
+            if (fork()==0) {
+              io_service.notify_fork(boost::asio::io_service::fork_child);
+              _acceptor.close();
+              _signal.cancel();   ///////////////////////////////////////////////////////////////////////
+              receive_socks4_package();
+              //dont sure the purpose of error catch here.
+            } 
+            else{
+              io_service.notify_fork(boost::asio::io_service::fork_parent);
+              _socket_requester.close();
+              do_accept();
+            }
+          } 
+          else {
+            cerr << "Accept error: " << ec.message() << endl;
+            do_accept();
+          }
+
+        });
+    
+  }
+  void receive_socks4_package(){
+    boost::asio::read(_socket_requester, socks4_req.mbuffers());  //mbuffers is mutiable buffer  //dont know how it assign to corresponding vaiables
+
+    string D_IP, D_PORT, Command;
+    tie(D_IP, D_PORT, Command) = socks4_req.get_socks_status();
+    cout << get_format() % _socket_requester.remote_endpoint().address().to_string()%
+                          _socket_requester.remote_endpoint().port()%
+                          D_IP % D_PORT % Command %
+                          "Accept";
+
+    if (socks4_req.command_ == socks4::request::command_type::connect)
+      resolve(tcp::resolver::query(socks4_req.getAddress(),  to_string(socks4_req.getPort())));   // able to declare a query as a input of resolve? 
+  }                                                                                               //but query constructure doesn't has return value. 
+    if (socks4_req.command_ == socks4::request::command_type::bind)
+      //connect to requester.  //local_endpoint: This function is used to obtain the locally bound endpoint of the socket.
+      tcp::acceptor acceptor_bind(io_service, tcp::endpoint(tcp::v4(), ));
+
+
+
+
+
+  }                                                                                               
+  void resolve(const tcp::resolver::query& q) {
+      _resolver.async_resolve(q, [this](const boost::system::error_code& ec,
+                                        tcp::resolver::iterator it) {
+        if (!ec) {
+          connect(it);
+        }
+      });
+    }
+  void connect(const tcp::resolver::iterator& it) {
+    _socket_destination.async_connect(*it, 
+            [this](const boost::system::error_code& ec) {
+                    if (!ec) {         
+                      socks4::reply reply(socks4_req, socks4::reply::status_type::request_granted);
+                      boost::asio::write(_socket_requester, reply.buffers());
+                      async_package_Dest2Requester();
+                      async_package_Requester2Dest();
+                    }
+                  });
+  }
+  void async_package_Dest2Requester(){
+    _socket_destination.async_receive( boost::asio::buffer(destination_buffer_),
+        [this](boost::system::error_code ec, std::size_t length) {
+          if (!ec) {
+            //write_to_req(length);
+            boost::asio::async_write( _socket_requester, boost::asio::buffer(destination_buffer_, length),  
+                                [this](boost::system::error_code ec, std::size_t length) {
+                                  if (!ec) {
+                                    async_package_Dest2Requester();
+                                  } else {
+                                    throw system_error{ec};
+                                  }
+                                });
+          } else {
+            throw system_error{ec};
+          }
+        });
+  }
+  /*
+  void write_to_req(size_t length){
+    boost::asio::async_write( _socket_requester, boost::asio::buffer(destination_buffer_, length),  
+                                [this](boost::system::error_code ec, std::size_t length) {
+                                  if (!ec) {
+                                    async_package_Dest2Requester();
+                                  } else {
+                                    throw system_error{ec};
+                                  }
+                                });
+  }
+  */
+  void async_package_Requester2Dest(){
+    _socket_requester.async_receive( boost::asio::buffer(requester_buffer_),  // buffer!!!!! not define
+        [this](boost::system::error_code ec, std::size_t length) {
+          if (!ec) {
+            //write_to_dest(length);
+            boost::asio::async_write( _socket_destination, boost::asio::buffer(requester_buffer_, length),   //destination buffer!!!!! not define
+                                [this](boost::system::error_code ec, std::size_t length) {
+                                  if (!ec) {
+                                    async_package_Requester2Dest();
+                                  } else {
+                                    throw system_error{ec};
+                                  }
+                                });
+          } 
+          else {
+            throw system_error{ec};
+          }
+        });
+  }
+  /*
+  void write_to_dest(size_t length){
+    boost::asio::async_write( _socket_destination, boost::asio::buffer(requester_buffer_, length),   //destination buffer!!!!! not define
+                                [this](boost::system::error_code ec, std::size_t length) {
+                                  if (!ec) {
+                                    async_package_Requester2Dest();
+                                  } else {
+                                    throw system_error{ec};
+                                  }
+                                });
+  }
+  */
+  boost::format get_format() {
+    return boost::format(
+        "<S_IP>:%1%\n"
+        "<S_PORT>:%2%\n"
+        "<D_IP>:%3%\n"
+        "<D_PORT>:%4%\n"
+        "<Command>:%5%\n"
+        "<Reply>:%6%\n\n");
+  }
+
+  boost::asio::signal_set _signal{io_service, SIGCHLD};       
+  tcp::resolver _resolver{io_service};
+  tcp::acceptor _acceptor;      //not sure why cant initial it
+  tcp::socket _socket_requester{io_service};
+  tcp::socket _socket_destination{io_service};
+
+
+  array<unsigned char, 65536> requester_buffer_{};
+  array<unsigned char, 65536> destination_buffer_{};
+  socks4::request socks4_req;
+  std::array<char, 1024> _data;
+};
+
+int main(int argc, char *argv[]) {
+  signal(SIGCHLD, SIG_IGN);
+  using namespace std;
+  try {
+    if (argc!=2) {
+      std::cerr << "Usage: process_per_connection <port>\n";
+      return 1;
+    }
+    
+    server s(stoi(string(argv[1])));
+    io_service.run();
+  }
+  catch (exception &e) {
+    cerr << "Exception: " << e.what() << endl;
+  }
+}
