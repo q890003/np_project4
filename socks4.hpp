@@ -143,7 +143,7 @@ public:
       port_high_byte_(req.port_high_byte_),
       port_low_byte_(req.port_low_byte_),
       address_(req.address_){}
-
+  reply(){}
   boost::array<boost::asio::mutable_buffer, 5> buffers()
   {
     boost::array<boost::asio::mutable_buffer, 5> bufs =
@@ -162,7 +162,7 @@ public:
   {
     return status_;
   }
-
+  bool success() const { return null_byte_ == 0 && status_ == request_granted; }
   boost::asio::ip::tcp::endpoint endpoint() const
   {
     unsigned short port = port_high_byte_;
