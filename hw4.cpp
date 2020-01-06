@@ -126,7 +126,7 @@ struct Client : public std::enable_shared_from_this<Client> {         //structur
     file.open("test_case/" + file_name, std::ios::in);
     if (!file.is_open())
       output_command("file open failed!");
-
+    
 
     
   }
@@ -251,13 +251,13 @@ int main() {
     console_format console_me;
     cout << getenv("QUERY_STRING") << endl;
     cout  << console_me.console_response(getenv("QUERY_STRING")) << flush;
+    
     tcp::resolver::query socks4(socks_host, socks_port);     //{ip, port}
-
     int k = 0;
     for (auto npshell : console_me.npshells) {
       if (!npshell.port.empty()) {
         tcp::resolver::query q(npshell.name, npshell.port);     //{ip, port}
-        std::make_shared<Client>("s" + std::to_string(k), npshell.file, std::move(socks4), std::move(q))   //socket{1~5}, file name, query(name,port)
+        std::make_shared<Client>("s" + std::to_string(k), npshell.file, socks4, std::move(q))   //socket{1~5}, file name, query(name,port)
             ->resolve();
         k++;
       }
