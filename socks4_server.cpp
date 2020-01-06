@@ -42,28 +42,26 @@ class server {
   void do_accept() {
     _acceptor.async_accept(_socket_requester, 
         [this](boost::system::error_code ec) {  ////save bind for latter study
-          if (!ec) {
-            io_service.notify_fork(boost::asio::io_service::fork_prepare);
-            if (fork()==0) {
-              io_service.notify_fork(boost::asio::io_service::fork_child);
-              _acceptor.close();
-              _signal.cancel();   ///////////////////////////////////////////////////////////////////////
-              receive_socks4_package();
-              //dont sure the purpose of error catch here.
-            } 
-            else{
-              io_service.notify_fork(boost::asio::io_service::fork_parent);
-              _socket_requester.close();
-              do_accept();
-            }
-          } 
-          else {
-            cerr << "Accept error: " << ec.message() << endl;
-            do_accept();
-          }
-
+                if (!ec) {
+                  io_service.notify_fork(boost::asio::io_service::fork_prepare);
+                  if (fork()==0) {
+                    io_service.notify_fork(boost::asio::io_service::fork_child);
+                    _acceptor.close();
+                    _signal.cancel();   ///////////////////////////////////////////////////////////////////////
+                    receive_socks4_package();
+                    //dont sure the purpose of error catch here.
+                  } 
+                  else{
+                    io_service.notify_fork(boost::asio::io_service::fork_parent);
+                    _socket_requester.close();
+                    do_accept();
+                  }
+                } 
+                else {
+                  cerr << "Accept error: " << ec.message() << endl;
+                  do_accept();
+                }
         });
-    
   }
   void receive_socks4_package(){
     boost::asio::read(_socket_requester, socks4_req.mbuffers());  //mbuffers is mutiable buffer  //dont know how it assign to corresponding vaiables
@@ -81,8 +79,6 @@ class server {
       boost::asio::write(_socket_requester, reply.buffers());
       return;
     }
-
-
 
     /*pass firewall*/
     cout << get_format() % _socket_requester.remote_endpoint().address().to_string()%
