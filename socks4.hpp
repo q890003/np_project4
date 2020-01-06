@@ -116,16 +116,6 @@ public:
     return "Unknown";
   }
 
-  friend ostream& operator<<(ostream& os, const request& req) {
-    boost::format fmt(
-        "<D_IP>:%1%\n"
-        "<D_PORT>:%2%\n"
-        "<command>:%3%\n");
-    os << fmt % ((req.port_high_byte_ * 256) + req.port_low_byte_) %
-              boost::asio::ip::address_v4(req.address_).to_string()%
-              command_; 
-    return os;
-  }
 
   unsigned char version_;
   unsigned char command_;

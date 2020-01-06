@@ -71,6 +71,17 @@ class server {
   void receive_socks4_package(){
     boost::asio::read(_socket_requester, socks4_req.mbuffers());  //mbuffers is mutiable buffer  //dont know how it assign to corresponding vaiables
 
+    /*Fire wall*/
+    if(pass_firewall() == false){
+      cout << cout << get_format() % _socket_requester.remote_endpoint().address().to_string()%
+                          _socket_requester.remote_endpoint().port()%
+                          D_IP % D_PORT % Command %
+                          "Reject";
+      socks4::reply reply(socks4_req, socks4::reply::status_type::request_failed);
+      boost::asio::write(_socket_requester, reply.buffers());
+      return;
+    }
+    /*pass firewall*/
     string D_IP, D_PORT, Command;
     tie(D_IP, D_PORT, Command) = socks4_req.get_socks_status();
     cout << get_format() % _socket_requester.remote_endpoint().address().to_string()%
@@ -78,17 +89,26 @@ class server {
                           D_IP % D_PORT % Command %
                           "Accept";
     
-    if (socks4_req.command_ == socks4::request::command_type::connect)
+    if (socks4_req.command_ == socks4::request::command_type::connect){
       resolve(tcp::resolver::query(socks4_req.getAddress(),  to_string(socks4_req.getPort())));   // able to declare a query as a input of resolve? 
-  }                                                                                               //but query constructure doesn't has return value. 
-    if (socks4_req.command_ == socks4::request::command_type::bind)
-      //connect to requester.  //local_endpoint: This function is used to obtain the locally bound endpoint of the socket.
-      tcp::acceptor acceptor_bind(io_service, tcp::endpoint(tcp::v4(), ));
+    }                                                                                               //but query constructure doesn't has return value. 
+    if (socks4_req.command_ == socks4::request::command_type::bind){
+      tcp::acceptor acceptor_bind(io_service, tcp::endpoint(tcp::v4(), 0));  
+
       //making FTP
+      socks4_req.port_high_byte_ = acceptor_bind.local_endpoint().port() >> 8;
+      socks4_req.port_low_byte_  = acceptor_bind.local_endpoint().port();
 
+      socks4_req.address_ = boost::asio::ip::make_address_v4("0.0.0.0").to_bytes();
+      socks4::reply reply(socks4_req, socks4::reply::status_type::request_granted);
 
+      boost::asio::write(_socket_requester, reply.buffers());
+      acceptor_bind.accept(_socket_destination);
+      boost::asio::write(_socket_requester, reply.buffers());
 
-
+      async_package_Dest2Requester();
+      async_package_Requester2Dest();
+    }
   }                                                                                               
   void resolve(const tcp::resolver::query& q) {
       _resolver.async_resolve(q, [this](const boost::system::error_code& ec,
@@ -113,7 +133,6 @@ class server {
     _socket_destination.async_receive( boost::asio::buffer(destination_buffer_),
         [this](boost::system::error_code ec, std::size_t length) {
           if (!ec) {
-            //write_to_req(length);
             boost::asio::async_write( _socket_requester, boost::asio::buffer(destination_buffer_, length),  
                                 [this](boost::system::error_code ec, std::size_t length) {
                                   if (!ec) {
@@ -179,7 +198,35 @@ class server {
         "<Command>:%5%\n"
         "<Reply>:%6%\n\n");
   }
+  bool pass_firewall(){
 
+    ifstream white_list("./socks.conf");
+    string line_of_conf;
+    vector<string> white_list_vec;
+    string criteria = "permit c ";
+
+    if (socks4_req.command_ == socks4::request::command_type::connect) {
+      criteria = "permit c ";
+    } else if (socks4_req.command_ == socks4::request::command_type::bind) {
+      criteria = "permit b ";
+    }
+
+    while (getline(white_list, line)) {
+      if (line.substr(0, criteria.size()) == criteria) {
+        white_list.push_back(line.substr(criteria.size()));
+      }
+    }
+
+    for (const string& ip : white_list) {
+      auto prefix = ip.substr(0, ip.find('*'));   
+      if (socks4_req.getAddress().substr(0, prefix.size()) == prefix) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+  }
   boost::asio::signal_set _signal{io_service, SIGCHLD};       
   tcp::resolver _resolver{io_service};
   tcp::acceptor _acceptor;      //not sure why cant initial it
