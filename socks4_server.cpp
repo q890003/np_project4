@@ -23,14 +23,12 @@ boost::asio::io_service io_service;
 
 class server {
  public:
-  server(unsigned short port)        
-      : _acceptor(io_service,tcp::endpoint(tcp::v4(), port) ){
+  server(unsigned short port) : _acceptor(io_service,tcp::endpoint(tcp::v4(), port) ){
     newSignalHandler();
     do_accept();
   }
 
  private:
- 
   void newSignalHandler() {
     _signal.async_wait([this](boost::system::error_code /*ec*/, int /*signo*/) {
                           if (_acceptor.is_open()) {
@@ -42,7 +40,6 @@ class server {
   }
 
   void do_accept() {
-    
     _acceptor.async_accept(_socket_requester, 
         [this](boost::system::error_code ec) {  ////save bind for latter study
           if (!ec) {
@@ -70,10 +67,13 @@ class server {
   }
   void receive_socks4_package(){
     boost::asio::read(_socket_requester, socks4_req.mbuffers());  //mbuffers is mutiable buffer  //dont know how it assign to corresponding vaiables
+    string D_IP, D_PORT, Command;
+    tie(D_IP, D_PORT, Command) = socks4_req.get_socks_status();
+
 
     /*Fire wall*/
     if(pass_firewall() == false){
-      cout << cout << get_format() % _socket_requester.remote_endpoint().address().to_string()%
+      cout << get_format() % _socket_requester.remote_endpoint().address().to_string()%
                           _socket_requester.remote_endpoint().port()%
                           D_IP % D_PORT % Command %
                           "Reject";
@@ -81,9 +81,10 @@ class server {
       boost::asio::write(_socket_requester, reply.buffers());
       return;
     }
+
+
+
     /*pass firewall*/
-    string D_IP, D_PORT, Command;
-    tie(D_IP, D_PORT, Command) = socks4_req.get_socks_status();
     cout << get_format() % _socket_requester.remote_endpoint().address().to_string()%
                           _socket_requester.remote_endpoint().port()%
                           D_IP % D_PORT % Command %
@@ -91,7 +92,8 @@ class server {
     
     if (socks4_req.command_ == socks4::request::command_type::connect){
       resolve(tcp::resolver::query(socks4_req.getAddress(),  to_string(socks4_req.getPort())));   // able to declare a query as a input of resolve? 
-    }                                                                                               //but query constructure doesn't has return value. 
+    }   
+                                                                                                //but query constructure doesn't has return value. 
     if (socks4_req.command_ == socks4::request::command_type::bind){
       tcp::acceptor acceptor_bind(io_service, tcp::endpoint(tcp::v4(), 0));  
 
@@ -109,6 +111,7 @@ class server {
       async_package_Dest2Requester();
       async_package_Requester2Dest();
     }
+    
   }                                                                                               
   void resolve(const tcp::resolver::query& q) {
       _resolver.async_resolve(q, [this](const boost::system::error_code& ec,
@@ -117,7 +120,7 @@ class server {
           connect(it);
         }
       });
-    }
+  }
   void connect(const tcp::resolver::iterator& it) {
     _socket_destination.async_connect(*it, 
             [this](const boost::system::error_code& ec) {
@@ -146,18 +149,7 @@ class server {
           }
         });
   }
-  /*
-  void write_to_req(size_t length){
-    boost::asio::async_write( _socket_requester, boost::asio::buffer(destination_buffer_, length),  
-                                [this](boost::system::error_code ec, std::size_t length) {
-                                  if (!ec) {
-                                    async_package_Dest2Requester();
-                                  } else {
-                                    throw system_error{ec};
-                                  }
-                                });
-  }
-  */
+  
   void async_package_Requester2Dest(){
     _socket_requester.async_receive( boost::asio::buffer(requester_buffer_),  // buffer!!!!! not define
         [this](boost::system::error_code ec, std::size_t length) {
@@ -177,18 +169,7 @@ class server {
           }
         });
   }
-  /*
-  void write_to_dest(size_t length){
-    boost::asio::async_write( _socket_destination, boost::asio::buffer(requester_buffer_, length),   //destination buffer!!!!! not define
-                                [this](boost::system::error_code ec, std::size_t length) {
-                                  if (!ec) {
-                                    async_package_Requester2Dest();
-                                  } else {
-                                    throw system_error{ec};
-                                  }
-                                });
-  }
-  */
+  
   boost::format get_format() {
     return boost::format(
         "<S_IP>:%1%\n"
@@ -200,7 +181,7 @@ class server {
   }
   bool pass_firewall(){
 
-    ifstream white_list("./socks.conf");
+    ifstream white_list("./socks.conf");     /////////////////////////////////////////////////////////////////////// difference against open???
     string line_of_conf;
     vector<string> white_list_vec;
     string criteria = "permit c ";
@@ -211,22 +192,21 @@ class server {
       criteria = "permit b ";
     }
 
-    while (getline(white_list, line)) {
-      if (line.substr(0, criteria.size()) == criteria) {
-        white_list.push_back(line.substr(criteria.size()));
+    while (getline(white_list, line_of_conf)) {
+      if (line_of_conf.substr(0, criteria.size()) == criteria) {
+        white_list_vec.push_back(line_of_conf.substr(criteria.size()));
       }
     }
 
-    for (const string& ip : white_list) {
+    for (const string& ip : white_list_vec) {
       auto prefix = ip.substr(0, ip.find('*'));   
       if (socks4_req.getAddress().substr(0, prefix.size()) == prefix) {
         return true;
       }
     }
-
     return false;
   }
-  }
+  
   boost::asio::signal_set _signal{io_service, SIGCHLD};       
   tcp::resolver _resolver{io_service};
   tcp::acceptor _acceptor;      //not sure why cant initial it
